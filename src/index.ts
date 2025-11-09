@@ -1,5 +1,5 @@
 /**
- * Secure API Handler Framework
+ * Secure API Handler Framework for Node.js + Express + Prisma
  *
  * A comprehensive framework for building secure, multi-tenant API handlers
  * with authentication, sanitization, encryption, rate limiting, caching,
@@ -13,6 +13,7 @@ export { createHandler } from './core/handler';
 export { createAuthenticatedHandler } from './core/handler';
 export { createPublicHandler } from './core/handler';
 export { createAdminHandler } from './core/handler';
+export { createTenantHandler } from './core/handler';
 
 // Types and interfaces
 export type {
@@ -32,6 +33,7 @@ export type {
   ApiVersion,
   FrameworkEvent,
   ErrorCode,
+  OwnershipConfig,
 } from './core/types';
 
 // Authentication
@@ -43,7 +45,6 @@ export { AuthManager } from './auth/manager';
 // Security
 export { SanitizationService } from './security/sanitization';
 export { EncryptionService } from './security/encryption';
-export { SecurityHeaders } from './security/headers';
 
 // Rate limiting
 export { RedisRateLimiter } from './security/rate-limiting';
@@ -57,7 +58,6 @@ export { CacheManager } from './caching/manager';
 // Monitoring & Observability
 export { MonitoringService } from './monitoring/service';
 export { HealthChecker } from './monitoring/health';
-export { Tracer } from './monitoring/tracer';
 
 // Multi-tenancy
 export { TenantManager } from './multitenancy/manager';
@@ -92,8 +92,13 @@ export {
   validationErrorResponse,
   unauthorizedResponse,
   forbiddenResponse,
+  notFoundResponse,
+  rateLimitResponse,
   internalErrorResponse,
+  serviceUnavailableResponse,
+  healthCheckResponse,
 } from './core/response';
 
 // Re-export commonly used external dependencies for convenience
 export { z } from 'zod';
+export { PrismaClient } from '@prisma/client';
