@@ -8,14 +8,12 @@ updates:
       day: "monday"
       time: "09:00"
     open-pull-requests-limit: 10
-    reviewers:
-      - "RkayG"
     labels:
       - "dependencies"
       - "security"
     commit-message:
       prefix: "chore"
-      include: "scope"
+      prefix-development: "chore"
     # Group updates to reduce PR noise
     groups:
       production-dependencies:
@@ -23,13 +21,10 @@ updates:
       development-dependencies:
         dependency-type: "development"
     # Ignore major version updates (review manually)
+    # Security updates will still be created even if they're major versions
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
-    # Security updates should be created immediately
-    allow:
-      - dependency-type: "direct"
-      - dependency-type: "indirect"
     # Only update dependencies with security vulnerabilities
     # Uncomment to only get security updates:
     # vulnerability-alerts-only: true
