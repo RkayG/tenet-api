@@ -323,6 +323,69 @@ rateLimit: {
 }
 ```
 
+### Dependency Scanning
+
+Automated security scanning for vulnerable dependencies:
+
+#### npm audit (Built-in)
+
+The project includes npm audit scripts for security scanning:
+
+```bash
+# Check for vulnerabilities
+npm run audit
+
+# Fix automatically fixable issues
+npm run audit:fix
+
+# Check only production dependencies
+npm run audit:production
+
+# Get JSON output for CI/CD
+npm run audit:json
+
+# Check with custom severity level
+npm run security:check
+```
+
+#### Dependabot (GitHub)
+
+Automated dependency updates via Dependabot are configured in `.github/dependabot.yml`:
+
+- **Weekly updates** - Checks for updates every Monday
+- **Security-first** - Prioritizes security vulnerabilities
+- **Grouped PRs** - Groups updates to reduce PR noise
+- **Auto-labeling** - Labels PRs with `dependencies` and `security`
+
+Dependabot will automatically:
+- Create PRs for security vulnerabilities
+- Update dependencies weekly
+- Group related updates together
+- Ignore major version updates (for manual review)
+
+#### Alternative: Snyk
+
+For more advanced scanning, you can use Snyk:
+
+```bash
+# Install Snyk CLI
+npm install -g snyk
+
+# Authenticate
+snyk auth
+
+# Test for vulnerabilities
+snyk test
+
+# Monitor project
+snyk monitor
+
+# Fix vulnerabilities
+snyk wizard
+```
+
+**Recommendation**: Use **npm audit** for quick checks and **Dependabot** for automated updates. Snyk is optional for teams needing advanced features like license compliance and container scanning.
+
 ## 📊 Monitoring & Observability
 
 ### Health Checks
