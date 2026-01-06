@@ -579,6 +579,14 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
 
 /**
  * Create an authenticated handler (requires login)
+ * 
+ * Use when:
+ * - The endpoint requires a logged-in user
+ * - You need to access user information (user.id, user.email, etc.)
+ * - The resource should only be accessible to authenticated users
+ * - No specific role restrictions are needed (any authenticated user can access)
+ * 
+ * Example: User profile endpoints, user settings, personal dashboards
  */
 export const createAuthenticatedHandler = <TInput, TOutput>(
   config: Omit<HandlerConfig<TInput, TOutput>, 'requireAuth'>
@@ -588,6 +596,14 @@ export const createAuthenticatedHandler = <TInput, TOutput>(
 
 /**
  * Create a public handler (no authentication required)
+ * 
+ * Use when:
+ * - The endpoint should be accessible without login
+ * - Public data or resources are being served
+ * - Authentication is optional or not needed
+ * - The endpoint is part of a public API
+ * 
+ * Example: Public content, health checks, documentation endpoints, login/signup
  */
 export const createPublicHandler = <TInput, TOutput>(
   config: Omit<HandlerConfig<TInput, TOutput>, 'requireAuth'>
@@ -596,20 +612,36 @@ export const createPublicHandler = <TInput, TOutput>(
 };
 
 /**
- * Create an admin-only handler
+ * Create a super admin-only handler
+ * 
+ * Use when:
+ * - The endpoint performs critical system operations
+ * - Only the highest privilege level should have access
+ * - Managing system-wide settings or configurations
+ * - Performing operations that affect all tenants
+ * 
+ * Example: System configuration, user management, tenant provisioning, audit log access
  */
-export const createAdminHandler = <TInput, TOutput>(
+export const createSuperAdminHandler = <TInput, TOutput>(
   config: Omit<HandlerConfig<TInput, TOutput>, 'requireAuth' | 'allowedRoles'>
 ): ReturnType<typeof _createHandler<TInput, TOutput>> => {
   return _createHandler({
     ...config,
     requireAuth: true,
-    allowedRoles: ['admin'],
+    allowedRoles: ['superadmin'],
   });
 };
 
 /**
  * Create a tenant-scoped handler
+ * 
+ * Use when:
+ * - The endpoint operates within a multi-tenant context
+ * - Data should be automatically scoped to the user's tenant
+ * - Tenant isolation is required
+ * - The resource belongs to a specific tenant
+ * 
+ * Example: Tenant-specific resources, organization settings, team management
  */
 export const createTenantHandler = <TInput, TOutput>(
   config: Omit<HandlerConfig<TInput, TOutput>, 'requireAuth'>
