@@ -22,6 +22,7 @@
 import { z } from 'zod';
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
+
 import crypto from 'crypto';
 
 import {
@@ -50,6 +51,7 @@ import { AuditEventType, AuditCategory, AuditStatus, AuditSeverity } from '../au
 import { ServiceInitializer } from './service-initializer';
 import { CSRFProtection } from '../security/csrf';
 import { IdempotencyService } from '../security/idempotency';
+import { createTenantExtension } from '../database/prisma-tenant-extension';
 
 // ============================================
 // Constants & Configuration
@@ -409,7 +411,9 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
     let auditEnabled = config.auditConfig?.enabled !== false;
     let user: User | null = null;
     let tenant: TenantContext | undefined;
-    let prisma: PrismaClient | null = null;
+    let prisma: any = null;
+    let monitoring: any;
+    let auditService: any;
 
     // Wrap everything in try-finally to ensure cleanup
     try {
@@ -418,7 +422,9 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
       // ============================================
 
       const services = getRequiredServices();
-      const { monitoring, configManager, tenantManager, versionManager, auditService } = services;
+      monitoring = services.monitoring;
+      auditService = services.auditService;
+      const { configManager, tenantManager, versionManager } = services;
 
       // Initialize optional services
       const encryptionService = initializeEncryptionService();
@@ -622,7 +628,7 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
           ? config.rateLimit.keyGenerator(req, user || undefined)
           : `rate-limit:${user?.id || req.ip}:${req.path}`;
 
-        const result = await rateLimiter.checkLimit(key, config.rateLimit);
+        const result = await rateLimiter.getLimitInfo(key, config.rateLimit);
 
         if (!result.allowed) {
           monitoring.recordMetric('rate_limit.exceeded', 1, {
@@ -631,28 +637,32 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
             path: req.path,
           });
 
+          const resetAt = result.resetTime.getTime();
+
           // Add rate limit headers
           res.set({
-            'X-RateLimit-Limit': result.limit.toString(),
+            'X-RateLimit-Limit': config.rateLimit.maxRequests.toString(),
             'X-RateLimit-Remaining': '0',
-            'X-RateLimit-Reset': result.resetAt.toString(),
-            'Retry-After': Math.ceil((result.resetAt - Date.now()) / 1000).toString(),
+            'X-RateLimit-Reset': resetAt.toString(),
+            'Retry-After': Math.ceil((resetAt - Date.now()) / 1000).toString(),
           });
 
           return rateLimitResponse(res, 'Rate limit exceeded');
         }
 
+        const resetAt = result.resetTime.getTime();
+
         rateLimitInfo = {
-          limit: result.limit,
+          limit: config.rateLimit.maxRequests,
           remaining: result.remaining,
-          reset: result.resetAt,
+          reset: resetAt,
         };
 
         // Add rate limit headers to successful responses
         res.set({
-          'X-RateLimit-Limit': result.limit.toString(),
+          'X-RateLimit-Limit': config.rateLimit.maxRequests.toString(),
           'X-RateLimit-Remaining': result.remaining.toString(),
-          'X-RateLimit-Reset': result.resetAt.toString(),
+          'X-RateLimit-Reset': resetAt.toString(),
         });
       }
 
@@ -824,21 +834,21 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
       }
 
       // ============================================
-      // 10b. Apply Tenant Scoping Middleware (if enabled)
+      // 10b. Apply Tenant Scoping (Prisma Client Extension)
       // ============================================
 
       if (tenant && config.autoTenantScope) {
-        // Check if middleware already applied to prevent stacking
-        // Note: In production, use Prisma Client Extensions instead of middleware
-        if (!(prisma as any)._tenantMiddlewareApplied) {
-          const middleware = createTenantScopingMiddleware(tenant.id);
-          prisma.$use(middleware);
-          (prisma as any)._tenantMiddlewareApplied = true;
 
-          monitoring.recordMetric('tenant.scoping.applied', 1, {
-            tenant_id: tenant.id,
-          });
-        }
+        // Create tenant-scoped Prisma client
+        prisma = prisma.$extends(createTenantExtension(tenant.id, {
+          // Optional: specify models explicitly for better performance
+          // models: ['project', 'task', 'auditLog'],
+          // Or let it auto-detect from schema (recommended)
+        }));
+
+        monitoring.recordMetric('tenant.scoping.applied', 1, {
+          tenant_id: tenant.id,
+        });
       }
 
       // ============================================
@@ -936,7 +946,7 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
         },
         // Transaction helper
         transaction: async <T>(fn: (tx: PrismaClient) => Promise<T>): Promise<T> => {
-          return await prisma!.$transaction(async (tx) => {
+          return await prisma!.$transaction(async (tx: any) => {
             return await fn(tx as PrismaClient);
           });
         },
@@ -1087,12 +1097,14 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
       const sanitizedError = sanitizeErrorMessage(error.message);
 
       // Record error metrics
-      monitoring.recordMetric('handler.error', 1, {
-        method: req.method,
-        path: req.path,
-        error_type: error.constructor.name,
-        execution_time: executionTime.toString(),
-      });
+      if (monitoring) {
+        monitoring.recordMetric('handler.error', 1, {
+          method: req.method,
+          path: req.path,
+          error_type: error.constructor.name,
+          execution_time: executionTime.toString(),
+        });
+      }
 
       console.error('[API Handler Error]', {
         method: req.method,
@@ -1103,7 +1115,7 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
       });
 
       // Audit: Log error
-      if (auditEnabled) {
+      if (auditEnabled && auditService) {
         const eventType = mapMethodToAuditEventType(req.method);
         try {
           await auditService.logEvent(
@@ -1144,7 +1156,9 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
 
       // Timeout errors
       if (error.message && error.message.includes('timeout')) {
-        monitoring.recordMetric('handler.timeout', 1);
+        if (monitoring) {
+          monitoring.recordMetric('handler.timeout', 1);
+        }
         return errorResponse(res, 'REQUEST_TIMEOUT', 'Request timed out', 408);
       }
 
@@ -1158,7 +1172,7 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
 
     } finally {
       // Cleanup: Always end monitoring span
-      if (span) {
+      if (span && monitoring) {
         try {
           monitoring.endSpan(span);
         } catch (error: any) {
