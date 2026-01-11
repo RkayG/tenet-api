@@ -408,7 +408,7 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
     const startTime = Date.now();
 
     let span: string | null = null;
-    let auditEnabled = config.auditConfig?.enabled !== false;
+    let auditEnabled = effectiveConfig.auditConfig?.enabled !== false;
     let user: User | null = null;
     let tenant: TenantContext | undefined;
     let prisma: any = null;
@@ -432,7 +432,7 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
       const idempotencyService = services.idempotencyService || IdempotencyService.getInstance();
 
       // Start monitoring span
-      if (config.monitoring?.enableTracing) {
+      if (effectiveConfig.monitoring?.enableTracing) {
         span = monitoring.startSpan('handler', { traceId });
       }
 
@@ -466,9 +466,9 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
       // 1. Configuration & Feature Flags
       // ============================================
 
-      if (config.featureFlags) {
+      if (effectiveConfig.featureFlags) {
         const featureFlags = configManager.getFeatureFlags();
-        const disabledFeatures = config.featureFlags.filter(
+        const disabledFeatures = effectiveConfig.featureFlags.filter(
           (flag: string) => !featureFlags[flag]
         );
 
@@ -486,13 +486,13 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
       // 2. API Versioning
       // ============================================
 
-      if (config.apiVersion) {
+      if (effectiveConfig.apiVersion) {
         const clientVersion = versionManager.getClientVersion(req);
-        if (!versionManager.isVersionSupported(clientVersion, config.apiVersion)) {
+        if (!versionManager.isVersionSupported(clientVersion, effectiveConfig.apiVersion)) {
           return errorResponse(
             res,
             'BAD_REQUEST',
-            `API version ${clientVersion} is not supported. Required: ${config.apiVersion}`,
+            `API version ${clientVersion} is not supported. Required: ${effectiveConfig.apiVersion}`,
             400
           );
         }
@@ -518,9 +518,9 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
       // 4. Authentication
       // ============================================
 
-      if (config.requireAuth) {
+      if (effectiveConfig.requireAuth) {
         const authManager = AuthManager.getInstance();
-        const strategies = config.authStrategies || ['jwt'];
+        const strategies = effectiveConfig.authStrategies || ['jwt'];
 
         user = await authManager.authenticate(req, strategies);
 
@@ -546,7 +546,7 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
         });
 
         // Audit: Log successful authentication
-        if (auditEnabled && config.auditConfig?.trackDataChanges !== false) {
+        if (auditEnabled && effectiveConfig.auditConfig?.trackDataChanges !== false) {
           await auditService.logAuthEvent('login', user.id, true, undefined, {
             user,
             request: req,
@@ -554,13 +554,13 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
         }
 
         // Role-based access control (global check)
-        if (config.allowedRoles && config.allowedRoles.length > 0) {
+        if (effectiveConfig.allowedRoles && effectiveConfig.allowedRoles.length > 0) {
           const userRole = user?.role || 'user';
 
           // Note: Tenant-scoped role validation happens after Prisma initialization
-          if (!tenant && !config.allowedRoles.includes(userRole)) {
+          if (!tenant && !effectiveConfig.allowedRoles.includes(userRole)) {
             monitoring.recordMetric('auth.forbidden', 1, {
-              required_roles: config.allowedRoles.join(','),
+              required_roles: effectiveConfig.allowedRoles.join(','),
               user_role: userRole,
             });
             return forbiddenResponse(res, 'Insufficient permissions for this operation');
@@ -568,15 +568,15 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
         }
 
         // Permission-based access control
-        if (config.requiredPermissions && config.requiredPermissions.length > 0) {
+        if (effectiveConfig.requiredPermissions && effectiveConfig.requiredPermissions.length > 0) {
           const userPermissions = user?.permissions || [];
-          const hasPermissions = config.requiredPermissions.every(
+          const hasPermissions = effectiveConfig.requiredPermissions.every(
             (permission: string) => userPermissions.includes(permission)
           );
 
           if (!hasPermissions) {
             monitoring.recordMetric('auth.forbidden', 1, {
-              required_permissions: config.requiredPermissions.join(','),
+              required_permissions: effectiveConfig.requiredPermissions.join(','),
             });
             return forbiddenResponse(res, 'Missing required permissions');
           }
@@ -587,7 +587,7 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
       // 5. CSRF Protection
       // ============================================
 
-      if (STATE_CHANGING_METHODS.has(req.method) && config.requireAuth && config.csrfProtection !== false) {
+      if (STATE_CHANGING_METHODS.has(req.method) && effectiveConfig.requireAuth && effectiveConfig.csrfProtection !== false) {
         const csrfToken = req.get('X-CSRF-Token') || req.body?._csrf;
 
         if (!csrfToken) {
@@ -622,13 +622,13 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
 
       let rateLimitInfo: RateLimitInfo | undefined;
 
-      if (config.rateLimit) {
+      if (effectiveConfig.rateLimit) {
         const rateLimiter = RedisRateLimiter.getInstance();
-        const key = config.rateLimit.keyGenerator
-          ? config.rateLimit.keyGenerator(req, user || undefined)
+        const key = effectiveConfig.rateLimit.keyGenerator
+          ? effectiveConfig.rateLimit.keyGenerator(req, user || undefined)
           : `rate-limit:${user?.id || req.ip}:${req.path}`;
 
-        const result = await rateLimiter.getLimitInfo(key, config.rateLimit);
+        const result = await rateLimiter.getLimitInfo(key, effectiveConfig.rateLimit);
 
         if (!result.allowed) {
           monitoring.recordMetric('rate_limit.exceeded', 1, {
@@ -641,7 +641,7 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
 
           // Add rate limit headers
           res.set({
-            'X-RateLimit-Limit': config.rateLimit.maxRequests.toString(),
+            'X-RateLimit-Limit': effectiveConfig.rateLimit.maxRequests.toString(),
             'X-RateLimit-Remaining': '0',
             'X-RateLimit-Reset': resetAt.toString(),
             'Retry-After': Math.ceil((resetAt - Date.now()) / 1000).toString(),
@@ -653,14 +653,14 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
         const resetAt = result.resetTime.getTime();
 
         rateLimitInfo = {
-          limit: config.rateLimit.maxRequests,
+          limit: effectiveConfig.rateLimit.maxRequests,
           remaining: result.remaining,
           reset: resetAt,
         };
 
         // Add rate limit headers to successful responses
         res.set({
-          'X-RateLimit-Limit': config.rateLimit.maxRequests.toString(),
+          'X-RateLimit-Limit': effectiveConfig.rateLimit.maxRequests.toString(),
           'X-RateLimit-Remaining': result.remaining.toString(),
           'X-RateLimit-Reset': resetAt.toString(),
         });
@@ -672,7 +672,7 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
 
       let input: TInput;
 
-      if (config.schema) {
+      if (effectiveConfig.schema) {
         try {
           // Get request body from Express (already parsed by express.json())
           const body = req.method !== 'GET' ? req.body : {};
@@ -688,7 +688,7 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
           const sanitizedInput = await sanitizationService.sanitize(rawInput);
 
           // Validate with Zod
-          const parseResult = config.schema.safeParse(sanitizedInput);
+          const parseResult = effectiveConfig.schema.safeParse(sanitizedInput);
 
           if (!parseResult.success) {
             const details = parseResult.error.flatten().fieldErrors;
@@ -715,7 +715,7 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
 
       let idempotencyKey: string | undefined;
 
-      if (STATE_CHANGING_METHODS.has(req.method) && config.idempotency !== false) {
+      if (STATE_CHANGING_METHODS.has(req.method) && effectiveConfig.idempotency !== false) {
         idempotencyKey = req.get('Idempotency-Key');
 
         if (idempotencyKey) {
@@ -752,10 +752,10 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
       // 9. Cache Check
       // ============================================
 
-      if (config.cache && req.method === 'GET') {
+      if (effectiveConfig.cache && req.method === 'GET') {
         const cacheManager = CacheManager.getInstance();
-        const cacheKey = config.cache.keyGenerator
-          ? config.cache.keyGenerator(req, user || undefined)
+        const cacheKey = effectiveConfig.cache.keyGenerator
+          ? effectiveConfig.cache.keyGenerator(req, user || undefined)
           : generateCacheKey(req.path, input, user?.id, tenant?.id);
 
         const cached = await cacheManager.get(cacheKey);
@@ -786,21 +786,21 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
       // 10a. Tenant-Scoped Role Validation
       // ============================================
 
-      if (tenant && config.allowedRoles && config.allowedRoles.length > 0 && config.tenantRoleValidation !== false) {
+      if (tenant && effectiveConfig.allowedRoles && effectiveConfig.allowedRoles.length > 0 && effectiveConfig.tenantRoleValidation !== false) {
         try {
           // Check if user has required role in THIS tenant
           const tenantMembership = await prisma.tenantMember.findFirst({
             where: {
               userId: user!.id,
               tenantId: tenant!.id,
-              role: { in: config.allowedRoles as any[] },
+              role: { in: effectiveConfig.allowedRoles as any[] },
               isActive: true,
             },
           });
 
           if (!tenantMembership) {
             monitoring.recordMetric('auth.tenant_role_forbidden', 1, {
-              required_roles: config.allowedRoles.join(','),
+              required_roles: effectiveConfig.allowedRoles.join(','),
               user_role: user?.role || 'unknown',
               tenant_id: tenant.id,
             });
@@ -811,14 +811,14 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
                 'tenant.authorization.failed',
                 AuditSeverity.WARNING,
                 `User ${user!.id} attempted to access tenant ${tenant.id} with insufficient role`,
-                { required_roles: config.allowedRoles, user_role: user?.role },
+                { required_roles: effectiveConfig.allowedRoles, user_role: user?.role },
                 { user, tenant, request: req }
               );
             }
 
             return forbiddenResponse(
               res,
-              `Insufficient permissions in this tenant. Required: ${config.allowedRoles.join(' or ')}`
+              `Insufficient permissions in this tenant. Required: ${effectiveConfig.allowedRoles.join(' or ')}`
             );
           }
 
@@ -837,7 +837,7 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
       // 10b. Apply Tenant Scoping (Prisma Client Extension)
       // ============================================
 
-      if (tenant && config.autoTenantScope) {
+      if (tenant && effectiveConfig.autoTenantScope) {
 
         // Create tenant-scoped Prisma client
         prisma = prisma.$extends(createTenantExtension(tenant.id, {
@@ -857,8 +857,8 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
 
       let resource: any = undefined;
 
-      if (config.requireOwnership && user) {
-        const { model, resourceIdParam, resourceIdField, ownerIdField, tenantIdField, selectFields } = config.requireOwnership;
+      if (effectiveConfig.requireOwnership && user) {
+        const { model, resourceIdParam, resourceIdField, ownerIdField, tenantIdField, selectFields } = effectiveConfig.requireOwnership;
         const resourceId = params[resourceIdParam];
 
         if (!resourceId) {
@@ -954,12 +954,12 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
 
       // Capture old data for UPDATE/DELETE operations (deep clone for audit trail)
       let oldData: any;
-      if (auditEnabled && config.auditConfig?.trackDataChanges && resource) {
+      if (auditEnabled && effectiveConfig.auditConfig?.trackDataChanges && resource) {
         oldData = deepClone(resource);
       }
 
       // Execute with timeout
-      const timeout = config.timeout || DEFAULT_REQUEST_TIMEOUT;
+      const timeout = effectiveConfig.timeout || DEFAULT_REQUEST_TIMEOUT;
 
       const timeoutPromise = new Promise<never>((_, reject) => {
         setTimeout(() => {
@@ -968,7 +968,7 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
       });
 
       const result = await Promise.race([
-        config.handler(handlerContext),
+        effectiveConfig.handler(handlerContext),
         timeoutPromise,
       ]);
 
@@ -979,7 +979,7 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
       let processedResult = result;
 
       // Sanitize response
-      const shouldSanitize = config.sanitizeResponse !== false;
+      const shouldSanitize = effectiveConfig.sanitizeResponse !== false;
       if (shouldSanitize) {
         const sanitizationService = SanitizationService.getInstance();
         processedResult = await sanitizationService.sanitizeResponse(processedResult);
@@ -1004,14 +1004,14 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
       // 14. Cache Result
       // ============================================
 
-      if (config.cache && req.method === 'GET') {
+      if (effectiveConfig.cache && req.method === 'GET') {
         const cacheManager = CacheManager.getInstance();
-        const cacheKey = config.cache.keyGenerator
-          ? config.cache.keyGenerator(req, user || undefined)
+        const cacheKey = effectiveConfig.cache.keyGenerator
+          ? effectiveConfig.cache.keyGenerator(req, user || undefined)
           : generateCacheKey(req.path, input, user?.id, tenant?.id);
 
         try {
-          await cacheManager.set(cacheKey, processedResult, config.cache.ttl);
+          await cacheManager.set(cacheKey, processedResult, effectiveConfig.cache.ttl);
           monitoring.recordMetric('cache.set', 1);
         } catch (error: any) {
           console.error('Cache set failed:', sanitizeErrorMessage(error.message));
@@ -1027,7 +1027,7 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
         try {
           await idempotencyService.set(idempotencyKey, {
             data: processedResult,
-            statusCode: config.successStatus || 200,
+            statusCode: effectiveConfig.successStatus || 200,
           }, 86400); // 24 hours
           monitoring.recordMetric('idempotency.stored', 1);
         } catch (error: any) {
@@ -1050,27 +1050,27 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
       // Audit: Log successful operation
       if (auditEnabled) {
         const eventType = mapMethodToAuditEventType(req.method);
-        const resourceType = config.auditConfig?.resourceType || config.requireOwnership?.model;
-        const resourceId = config.requireOwnership?.resourceIdParam ? params[config.requireOwnership.resourceIdParam] : undefined;
+        const resourceType = effectiveConfig.auditConfig?.resourceType || effectiveConfig.requireOwnership?.model;
+        const resourceId = effectiveConfig.requireOwnership?.resourceIdParam ? params[effectiveConfig.requireOwnership.resourceIdParam] : undefined;
 
         try {
           await auditService.logEvent(
             {
               eventType,
-              category: config.auditConfig?.category as any || AuditCategory.DATA,
-              action: config.auditConfig?.action || `${req.method.toLowerCase()}.${req.path}`,
+              category: effectiveConfig.auditConfig?.category as any || AuditCategory.DATA,
+              action: effectiveConfig.auditConfig?.action || `${req.method.toLowerCase()}.${req.path}`,
               description: `${req.method} ${req.path}`,
               ...(resourceType ? { resourceType } : {}),
               ...(resourceId ? { resourceId } : {}),
-              ...(config.auditConfig?.trackDataChanges ? { oldData } : {}),
-              ...(config.auditConfig?.captureResponseBody ? { newData: processedResult } : {}),
+              ...(effectiveConfig.auditConfig?.trackDataChanges ? { oldData } : {}),
+              ...(effectiveConfig.auditConfig?.captureResponseBody ? { newData: processedResult } : {}),
               status: AuditStatus.SUCCESS,
-              statusCode: config.successStatus || 200,
+              statusCode: effectiveConfig.successStatus || 200,
               severity: AuditSeverity.INFO,
               executionTimeMs: executionTime,
-              ...(config.auditConfig?.metadata ? { metadata: config.auditConfig.metadata } : {}),
-              ...(config.auditConfig?.tags ? { tags: config.auditConfig.tags } : {}),
-              ...(config.auditConfig?.retentionCategory ? { retentionCategory: config.auditConfig.retentionCategory } : {}),
+              ...(effectiveConfig.auditConfig?.metadata ? { metadata: effectiveConfig.auditConfig.metadata } : {}),
+              ...(effectiveConfig.auditConfig?.tags ? { tags: effectiveConfig.auditConfig.tags } : {}),
+              ...(effectiveConfig.auditConfig?.retentionCategory ? { retentionCategory: effectiveConfig.auditConfig.retentionCategory } : {}),
             },
             {
               user,
@@ -1085,7 +1085,7 @@ function _createHandler<TInput = unknown, TOutput = unknown>(
         }
       }
 
-      return successResponse(res, processedResult, undefined, config.successStatus, {
+      return successResponse(res, processedResult, undefined, effectiveConfig.successStatus, {
         executionTime,
         ...(rateLimitInfo ? { rateLimit: rateLimitInfo } : {}),
       });
@@ -1308,7 +1308,7 @@ export const createSuperAdminHandler = <TInput, TOutput>(
  * - CSRF protection
  * 
  * @param config - Handler configuration
- * @param config.allowedRoles - Optional tenant roles (e.g., ['OWNER', 'MANAGER'])
+ * @param effectiveConfig.allowedRoles - Optional tenant roles (e.g., ['OWNER', 'MANAGER'])
  * 
  * @example
  * // Any tenant member
