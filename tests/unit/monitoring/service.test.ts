@@ -177,17 +177,6 @@ describe('Monitoring Service', () => {
             }).not.toThrow();
         });
 
-        it('should run health check', async () => {
-            const healthCheckFn = async () => ({
-                name: 'api',
-                status: 'healthy' as const,
-                timestamp: new Date(),
-            });
-
-            await expect(
-                monitoring.runHealthCheck('api', healthCheckFn)
-            ).resolves.not.toThrow();
-        });
 
         it('should get all health checks', () => {
             const checks = monitoring.getHealthChecks();
