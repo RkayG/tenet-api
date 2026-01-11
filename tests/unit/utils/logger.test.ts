@@ -7,29 +7,44 @@
 import { logger } from '../../../src/utils/logger';
 
 // Mock Winston
-jest.mock('winston', () => ({
-    createLogger: jest.fn(() => ({
+jest.mock('winston', () => {
+    const mockLogger = {
         info: jest.fn(),
         error: jest.fn(),
         warn: jest.fn(),
         debug: jest.fn(),
-    })),
-    format: {
-        combine: jest.fn(),
-        timestamp: jest.fn(),
-        json: jest.fn(),
-        colorize: jest.fn(),
-        printf: jest.fn(),
-    },
-    transports: {
-        Console: jest.fn(),
-        File: jest.fn(),
-    },
-}));
+        log: jest.fn(),
+        child: jest.fn(),
+    };
+    return {
+        createLogger: jest.fn(() => mockLogger),
+        format: {
+            combine: jest.fn(),
+            timestamp: jest.fn(),
+            json: jest.fn(),
+            colorize: jest.fn(),
+            printf: jest.fn(),
+            errors: jest.fn(),
+            simple: jest.fn(),
+        },
+        transports: {
+            Console: jest.fn(),
+            File: jest.fn(),
+        },
+    };
+});
 
 describe('Logger Utility', () => {
     beforeEach(() => {
         jest.clearAllMocks();
+        jest.spyOn(logger, 'info').mockImplementation();
+        jest.spyOn(logger, 'error').mockImplementation();
+        jest.spyOn(logger, 'warn').mockImplementation();
+        jest.spyOn(logger, 'debug').mockImplementation();
+    });
+
+    afterEach(() => {
+        jest.restoreAllMocks();
     });
 
     describe('Basic Logging', () => {

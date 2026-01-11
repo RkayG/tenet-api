@@ -187,13 +187,15 @@ export class Logger {
   /**
    * Log HTTP request
    */
-  public logRequest(req: any): void {
-    this.info('HTTP Request', {
-      method: req.method,
-      url: req.url,
-      ip: req.ip,
-      userAgent: req.headers['user-agent'],
-      requestId: req.id,
+  public logRequest(data: any): void {
+    const { method, path, url, ip, userId, statusCode, duration } = data;
+    this.info(`HTTP Request: ${method} ${path || url}`, {
+      method,
+      url: path || url,
+      ip,
+      userId,
+      statusCode,
+      duration,
     });
   }
 
@@ -213,34 +215,83 @@ export class Logger {
   /**
    * Log database query
    */
-  public logQuery(query: string, duration: number, params?: any): void {
-    this.debug('Database Query', {
+  public logQuery(query: string, duration: number, metadata: Record<string, any> = {}): void {
+    const logData = {
       query,
-      duration: `${duration}ms`,
-      params,
-    });
+      duration,
+      ...metadata,
+    };
+
+    if (duration >= 1000) {
+      this.warn('Slow Database Query', logData);
+    } else {
+      this.debug('Database Query', logData);
+    }
   }
 
   /**
    * Log authentication event
    */
-  public logAuth(event: 'success' | 'failure', userId?: string, reason?: string): void {
-    if (event === 'success') {
-      this.info('Authentication Success', { userId });
+  public logAuth(event: string, details: Record<string, any> = {}): void {
+    if (event.toLowerCase().includes('success')) {
+      this.info(`Authentication Success: ${event}`, details);
     } else {
-      this.warn('Authentication Failure', { userId, reason });
+      this.warn(`Authentication Failure: ${event}`, details);
     }
   }
 
   /**
    * Log security event
    */
-  public logSecurity(event: string, severity: 'low' | 'medium' | 'high' | 'critical', details?: Record<string, any>): void {
+  public logSecurity(event: string, metadata: any = {}): void {
+    let severity = 'medium';
+    if (typeof metadata === 'string') {
+      severity = metadata;
+      metadata = {};
+    } else if (metadata.severity) {
+      severity = metadata.severity;
+    }
+
     const level = severity === 'critical' || severity === 'high' ? 'error' : 'warn';
-    this.log(level, `Security Event: ${event}`, {
-      severity,
-      ...details,
-    });
+    const message = `Security Event: ${event}`;
+
+    if (level === 'error') {
+      this.error(message, undefined, metadata);
+    } else {
+      this.warn(message, metadata);
+    }
+  }
+
+  /**
+   * Alias for logRequest
+   */
+  public request(req: any): void {
+    this.logRequest(req);
+  }
+
+  /**
+   * Alias for logSecurity
+   */
+  public security(event: string, metadata: any = {}): void {
+    this.logSecurity(event, metadata);
+  }
+
+  /**
+   * Alias for logAuth
+   */
+  public auth(event: string, details: any = {}): void {
+    this.logAuth(event, details);
+  }
+
+  /**
+   * Alias for logQuery
+   */
+  public query(query: string, duration: any, params?: any): void {
+    if (typeof duration === 'object' && duration.duration !== undefined) {
+      this.logQuery(query, duration.duration, duration);
+    } else {
+      this.logQuery(query, duration, params);
+    }
   }
 
   /**
@@ -250,3 +301,6 @@ export class Logger {
     return { ...this.config };
   }
 }
+
+// Export default instance
+export const logger = Logger.getInstance();
