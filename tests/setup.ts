@@ -24,5 +24,17 @@ global.console = {
     error: jest.fn(),
 };
 
+// Mock jsdom to prevent canvas dependency issues
+jest.mock('jsdom', () => ({
+    JSDOM: jest.fn().mockImplementation(() => ({
+        window: {
+            document: {
+                createElement: jest.fn(),
+            },
+        },
+    })),
+}));
+
 // Global test utilities
 global.sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+

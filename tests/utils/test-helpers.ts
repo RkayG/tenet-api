@@ -17,8 +17,15 @@ export const mockRequest = (overrides: Partial<Request> = {}): Partial<Request> 
     headers: {},
     method: 'GET',
     path: '/test',
+    url: '/test',
     ip: '127.0.0.1',
     user: null,
+    get: function (name: string) {
+        return (this as any).headers[name.toLowerCase()] || undefined;
+    },
+    header: function (name: string) {
+        return (this as any).headers[name.toLowerCase()] || undefined;
+    },
     ...overrides,
 });
 
