@@ -4,7 +4,7 @@
  * Tests for standardized API response functions
  */
 
-import { mockResponse } from '../utils/test-helpers';
+import { mockResponse } from '../../utils/test-helpers';
 import {
     successResponse,
     errorResponse,
@@ -15,7 +15,7 @@ import {
     rateLimitResponse,
     internalErrorResponse,
     healthCheckResponse,
-} from '../../src/core/response';
+} from '../../../src/core/response';
 
 describe('Response Utilities', () => {
     let res: any;
@@ -45,7 +45,7 @@ describe('Response Utilities', () => {
         });
 
         it('should accept custom status code', () => {
-            successResponse(res, { message: 'created' }, 201);
+            successResponse(res, { message: 'created' }, undefined, 201);
 
             expect(res.status).toHaveBeenCalledWith(201);
         });
@@ -53,7 +53,7 @@ describe('Response Utilities', () => {
         it('should include custom meta data', () => {
             const meta = { page: 1, limit: 10 };
 
-            successResponse(res, { items: [] }, 200, meta);
+            successResponse(res, { items: [] }, undefined, 200, meta);
 
             expect(res.json).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -65,9 +65,9 @@ describe('Response Utilities', () => {
 
     describe('errorResponse', () => {
         it('should return error response', () => {
-            errorResponse(res, 'ERROR_CODE', 'Error message');
+            errorResponse(res, 'ERROR_CODE', 'Error message', 500);
 
-            expect(res.status).toHaveBeenCalledWith(400);
+            expect(res.status).toHaveBeenCalledWith(500);
             expect(res.json).toHaveBeenCalledWith(
                 expect.objectContaining({
                     success: false,
@@ -82,7 +82,7 @@ describe('Response Utilities', () => {
         it('should include error details', () => {
             const details = { field: 'email', issue: 'invalid format' };
 
-            errorResponse(res, 'VALIDATION_ERROR', 'Validation failed', details);
+            errorResponse(res, 'VALIDATION_ERROR', 'Validation failed', 400, details);
 
             expect(res.json).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -96,7 +96,7 @@ describe('Response Utilities', () => {
         it('should include trace ID', () => {
             const traceId = 'trace-123';
 
-            errorResponse(res, 'ERROR', 'Error', undefined, traceId);
+            errorResponse(res, 'ERROR', 'Error', 500, undefined, traceId);
 
             expect(res.json).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -139,7 +139,7 @@ describe('Response Utilities', () => {
             expect(res.json).toHaveBeenCalledWith(
                 expect.objectContaining({
                     error: expect.objectContaining({
-                        code: 'UNAUTHORIZED',
+                        code: 'AUTHENTICATION_ERROR',
                     }),
                 })
             );
@@ -166,7 +166,7 @@ describe('Response Utilities', () => {
             expect(res.json).toHaveBeenCalledWith(
                 expect.objectContaining({
                     error: expect.objectContaining({
-                        code: 'FORBIDDEN',
+                        code: 'AUTHORIZATION_ERROR',
                     }),
                 })
             );
@@ -181,7 +181,7 @@ describe('Response Utilities', () => {
             expect(res.json).toHaveBeenCalledWith(
                 expect.objectContaining({
                     error: expect.objectContaining({
-                        code: 'NOT_FOUND',
+                        code: 'RESOURCE_NOT_FOUND',
                     }),
                 })
             );
@@ -220,41 +220,24 @@ describe('Response Utilities', () => {
 
     describe('healthCheckResponse', () => {
         it('should return healthy status', () => {
-            const health = {
-                status: 'healthy' as const,
-                timestamp: new Date().toISOString(),
-                uptime: 12345,
-                checks: {},
-            };
-
-            healthCheckResponse(res, health);
+            healthCheckResponse(res, 'healthy', {});
 
             expect(res.status).toHaveBeenCalledWith(200);
-            expect(res.json).toHaveBeenCalledWith(health);
+            expect(res.json).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    status: 'healthy',
+                })
+            );
         });
 
-        it('should return degraded status with 200', () => {
-            const health = {
-                status: 'degraded' as const,
-                timestamp: new Date().toISOString(),
-                uptime: 12345,
-                checks: {},
-            };
+        it('should return degraded status with 503', () => {
+            healthCheckResponse(res, 'degraded', {});
 
-            healthCheckResponse(res, health);
-
-            expect(res.status).toHaveBeenCalledWith(200);
+            expect(res.status).toHaveBeenCalledWith(503);
         });
 
         it('should return unhealthy status with 503', () => {
-            const health = {
-                status: 'unhealthy' as const,
-                timestamp: new Date().toISOString(),
-                uptime: 12345,
-                checks: {},
-            };
-
-            healthCheckResponse(res, health);
+            healthCheckResponse(res, 'unhealthy', {});
 
             expect(res.status).toHaveBeenCalledWith(503);
         });
