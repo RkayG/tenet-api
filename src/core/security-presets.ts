@@ -84,7 +84,7 @@ export const securityPresets = {
         auditConfig: {
             enabled: true,
             trackDataChanges: true,
-            severity: AuditSeverity.HIGH,
+            severity: AuditSeverity.CRITICAL,
         },
     },
 
@@ -160,7 +160,7 @@ export const securityPresets = {
             enabled: true,
             trackDataChanges: true,
             captureResponseBody: true,
-            severity: AuditSeverity.HIGH,
+            severity: AuditSeverity.CRITICAL,
         },
     },
 } as const;
