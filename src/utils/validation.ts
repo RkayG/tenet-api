@@ -98,7 +98,7 @@ export class ValidationUtils {
     }
 
     return {
-      isValid: score >= 4,
+      isValid: score >= 4 && password.length >= 8,
       score,
       feedback,
     };
